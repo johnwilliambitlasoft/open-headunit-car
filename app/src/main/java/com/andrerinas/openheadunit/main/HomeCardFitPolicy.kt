@@ -9,13 +9,13 @@ package com.andrerinas.openheadunit.main
  */
 object HomeCardFitPolicy {
 
-    enum class Line { DETAIL, SUBTITLE, KICKER, TITLE }
+    enum class Line { DETAIL, UNIT, SUBTITLE, KICKER, TITLE }
 
     fun stepAsideOrder(stepShown: Boolean): List<Line> =
         if (stepShown) {
-            listOf(Line.DETAIL, Line.KICKER, Line.TITLE)
+            listOf(Line.DETAIL, Line.UNIT, Line.KICKER, Line.TITLE)
         } else {
             // The network line is only there during a step, so it never has to go here.
-            listOf(Line.SUBTITLE, Line.KICKER)
+            listOf(Line.SUBTITLE, Line.UNIT, Line.KICKER)
         }
 }

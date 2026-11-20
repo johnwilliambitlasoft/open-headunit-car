@@ -2172,6 +2172,12 @@ class NativeAaHandshakeManager(
                     // Counted before the hold, so a poke that is cancelled mid-hold still counts:
                     // the phone answered, which is the whole point of the count.
                     pokesSinceLastAccept++
+                    if (NativeHandoffPolicy.shouldTellUserPhoneIgnoresWake(
+                            pokesSinceLastAccept, everAcceptedAaConnection
+                        )
+                    ) {
+                        ConnectionIssues.raiseOnce(context, ConnectionIssue.PHONE_IGNORES_WAKE)
+                    }
                     holdPoke(socket, device, profile, uuid, holdMs)
                     return BluetoothWakePolicy.WakeOutcome.ANSWERED
                 } catch (e: CancellationException) {
@@ -3255,6 +3261,7 @@ class NativeAaHandshakeManager(
         // primary and the secondary-radio loops are covered by one statement.
         everAcceptedAaConnection = true
         acceptedAaConnectionThisArming = true
+        ConnectionIssues.clear(context, ConnectionIssue.PHONE_IGNORES_WAKE)
         // The verdict's re-measure clock is about armings that never connected; this one did.
         settings.nativeAaWakeArmingsWithoutSession = 0
         // The poke count is deliberately not cleared here. It answers the stale-group watchdog's
@@ -4289,6 +4296,7 @@ class NativeAaHandshakeManager(
         clearGateRefusals(logSummary = true)
         // The phone is on the network, which is the only thing that retires the stale-group count.
         pokesSinceLastAccept = 0
+        ConnectionIssues.clear(context, ConnectionIssue.PHONE_IGNORES_WAKE)
         escalationSpentLoggedFor = null
         if (pokeJob?.isActive == true) {
             AppLog.i("NativeAA: session is up — cancelling the poke retry loop")

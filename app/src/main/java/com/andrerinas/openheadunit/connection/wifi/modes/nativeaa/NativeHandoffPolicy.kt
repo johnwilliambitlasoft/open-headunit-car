@@ -116,6 +116,18 @@ object NativeHandoffPolicy {
             pokesSinceLastAccept > 0 &&
             pokesSinceLastAccept % SILENT_POKE_WARN_INTERVAL == 0
 
+    /** Answered wake pokes, with no connection back, before the user is told what to do. */
+    const val IGNORED_WAKE_USER_NOTICE_POKES = 2
+
+    /**
+     * Whether to tell the user, not only the log, that the phone answers the wake but never
+     * connects. Two answered pokes is about 40 s, longer than Android Auto's own retries of a
+     * WiFi network it remembers (7 + 12 + 17 s), so a phone that is merely slow has finished by
+     * then. The fix is on the phone (unpair, pair again), which only the user can do.
+     */
+    fun shouldTellUserPhoneIgnoresWake(pokesSinceLastAccept: Int, everAccepted: Boolean): Boolean =
+        !everAccepted && pokesSinceLastAccept >= IGNORED_WAKE_USER_NOTICE_POKES
+
     /** How many handshakes may time out waiting for the phone's Type 2, back to back, before we
      *  stop serving new ones. Roughly a minute of trying at the phone's ~12 s reconnect cadence. */
     const val MAX_CONSECUTIVE_HANDSHAKE_FAILURES = 5

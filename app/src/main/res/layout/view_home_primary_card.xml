@@ -17,9 +17,18 @@
     android:layout_weight="1"
     android:focusable="true">
 
+    <!-- The status on the left; on a landscape screen with room, the "On your phone" steps on the
+         right (HomePhonePanel fills it, HomeFragment decides when it shows). -->
+    <LinearLayout
+        android:id="@+id/home_primary_row"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal">
+
     <LinearLayout
         android:id="@+id/home_primary_content"
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
+        android:layout_weight="1"
         android:layout_height="match_parent"
         android:orientation="vertical"
         android:paddingLeft="@dimen/home_card_padding_h"
@@ -100,6 +109,17 @@
             style="@style/HomeCardText"
             android:layout_marginTop="4dp"
             android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="@dimen/home_card_subtitle"
+            android:visibility="gone" />
+
+        <!-- This unit's name as the phone lists it (Bluetooth, and the WiFi network once it is up),
+             so the user knows which entry to pick on the phone. -->
+        <TextView
+            android:id="@+id/home_primary_unit"
+            style="@style/HomeCardText"
+            android:layout_marginTop="4dp"
+            android:maxLines="2"
             android:ellipsize="end"
             android:textSize="@dimen/home_card_subtitle"
             android:visibility="gone" />
@@ -187,6 +207,175 @@
                 android:visibility="gone" />
 
         </LinearLayout>
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/home_phone_panel"
+        android:layout_width="0dp"
+        android:layout_weight="0.9"
+        android:layout_height="match_parent"
+        android:layout_marginTop="@dimen/home_card_padding_v"
+        android:layout_marginBottom="@dimen/home_card_padding_v"
+        android:layout_marginRight="@dimen/home_card_padding_v"
+        android:orientation="vertical"
+        android:gravity="center_vertical"
+        android:paddingLeft="@dimen/home_phone_panel_padding"
+        android:paddingRight="@dimen/home_phone_panel_padding"
+        android:paddingTop="@dimen/home_phone_panel_padding"
+        android:paddingBottom="@dimen/home_phone_panel_padding"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/home_phone_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:textAllCaps="true"
+            android:textSize="@dimen/home_card_kicker"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/home_phone_step1"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/home_phone_step_gap"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/home_phone_step1_badge"
+                android:layout_width="@dimen/home_phone_badge"
+                android:layout_height="@dimen/home_phone_badge"
+                android:gravity="center"
+                android:text="1"
+                android:textSize="@dimen/home_card_kicker"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginLeft="@dimen/home_phone_badge_gap"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/home_phone_step1_label"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textAllCaps="true"
+                    android:textSize="@dimen/home_card_kicker" />
+
+                <TextView
+                    android:id="@+id/home_phone_step1_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:maxLines="2"
+                    android:ellipsize="end"
+                    android:textSize="@dimen/home_card_subtitle"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/home_phone_step2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/home_phone_step_gap"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/home_phone_step2_badge"
+                android:layout_width="@dimen/home_phone_badge"
+                android:layout_height="@dimen/home_phone_badge"
+                android:gravity="center"
+                android:text="2"
+                android:textSize="@dimen/home_card_kicker"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginLeft="@dimen/home_phone_badge_gap"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/home_phone_step2_label"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textAllCaps="true"
+                    android:textSize="@dimen/home_card_kicker" />
+
+                <TextView
+                    android:id="@+id/home_phone_step2_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:maxLines="2"
+                    android:ellipsize="end"
+                    android:textSize="@dimen/home_card_subtitle"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/home_phone_step3"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/home_phone_step_gap"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/home_phone_step3_badge"
+                android:layout_width="@dimen/home_phone_badge"
+                android:layout_height="@dimen/home_phone_badge"
+                android:gravity="center"
+                android:text="3"
+                android:textSize="@dimen/home_card_kicker"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginLeft="@dimen/home_phone_badge_gap"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/home_phone_step3_label"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textAllCaps="true"
+                    android:textSize="@dimen/home_card_kicker" />
+
+                <TextView
+                    android:id="@+id/home_phone_step3_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:maxLines="2"
+                    android:ellipsize="end"
+                    android:textSize="@dimen/home_card_subtitle"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/home_phone_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/home_phone_step_gap"
+            android:maxLines="3"
+            android:ellipsize="end"
+            android:textSize="@dimen/home_card_kicker" />
+    </LinearLayout>
 
     </LinearLayout>
 

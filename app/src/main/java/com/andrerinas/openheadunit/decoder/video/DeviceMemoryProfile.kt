@@ -34,8 +34,15 @@ enum class DeviceMemoryProfile {
 
     companion object {
 
-        /** At or below this much total RAM, treat the device as constrained. */
-        const val CONSTRAINED_TOTAL_RAM_MB = 1536L
+        /**
+         * At or below this much total RAM, treat the device as constrained.
+         *
+         * A "2 GB" head unit reports roughly 1.8-1.95 GB here once the kernel and the modem have taken
+         * theirs, and on those units Android itself, the stock car apps and the codec leave the app
+         * little room, so they get the constrained pipeline too. 2304 MB keeps every 2 GB unit in and
+         * every 3 GB one out.
+         */
+        const val CONSTRAINED_TOTAL_RAM_MB = 2304L
 
         /** At or below this heap ceiling, treat the device as constrained whatever its total RAM. */
         const val CONSTRAINED_HEAP_LIMIT_MB = 96L

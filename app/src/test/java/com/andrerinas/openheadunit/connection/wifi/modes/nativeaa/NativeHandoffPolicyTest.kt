@@ -309,4 +309,16 @@ class NativeHandoffPolicyTest {
             )
         }
     }
+
+    @Test
+    fun `the user is told once the phone has ignored two wakes and never connected`() {
+        assertEquals(false, NativeHandoffPolicy.shouldTellUserPhoneIgnoresWake(1, everAccepted = false))
+        assertEquals(true, NativeHandoffPolicy.shouldTellUserPhoneIgnoresWake(2, everAccepted = false))
+        assertEquals(true, NativeHandoffPolicy.shouldTellUserPhoneIgnoresWake(5, everAccepted = false))
+    }
+
+    @Test
+    fun `a phone that has connected before is not reported for a slow wake`() {
+        assertEquals(false, NativeHandoffPolicy.shouldTellUserPhoneIgnoresWake(4, everAccepted = true))
+    }
 }

@@ -473,9 +473,17 @@ class HomeFragment : Fragment() {
             decision, chosen, HomePagesPolicy.barCarriesEveryConnection(pageCount)
         )
         HomeUiHelper.applyBar(ctx, root, appSettings, barConnections, palette, decision.tiles)
+        val split = splitCard(root)
         HomeUiHelper.applyPrimaryCard(
             ctx, root, appSettings, decision, usbPhone?.let { phoneName(it) }, reconnectSecondsLeft, palette,
-            networkLine = ConnectionStageTracker.network.value?.let { networkText(it) }
+            networkLine = ConnectionStageTracker.network.value?.let { networkText(it) },
+            // The panel beside the status carries the names when it shows.
+            unitLine = if (split) null else unitLine(ctx, decision)
+        )
+        lastPhonePanel = phonePanel(decision, usbPhone != null)
+        HomeUiHelper.applyPhonePanel(
+            ctx, root, lastPhonePanel, split,
+            HomeUiHelper.connectionColor(appSettings, decision.primary, palette), palette
         )
         HomeUiHelper.fitDriverBar(root, appSettings.homeButtonScalePercent)
         renderHomeInfo()
@@ -533,6 +541,98 @@ class HomeFragment : Fragment() {
             renderHome()
         }
         return null
+    }
+
+    /**
+     * This unit's name as the phone shows it, so the user knows what to pick there: the Bluetooth
+     * name for wireless, plus the WiFi network once the Native group is up; for the cable, the
+     * same name with a reminder that it takes a data cable. Not shown for Self Mode or during a
+     * running session, where there is nothing to pick.
+     */
+    private fun unitLine(ctx: Context, decision: HomePrimaryPolicy.Decision): String? {
+        if (decision.status == HomePrimaryPolicy.Status.ACTIVE_SESSION) return null
+        val name = (activity as? MainActivity)?.unitBluetoothName() ?: return null
+        return when (decision.primary) {
+            HomePrimaryPolicy.Connection.USB -> getString(R.string.home_unit_name_usb, name)
+            HomePrimaryPolicy.Connection.WIFI -> {
+                val ssid = try {
+                    AapService.instance?.projectionQrSnapshot()?.ssid?.takeIf { it.isNotBlank() }
+                } catch (e: Exception) {
+                    null
+                }
+                if (ssid != null) getString(R.string.home_unit_name_bluetooth_wifi, name, ssid)
+                else getString(R.string.home_unit_name_bluetooth, name)
+            }
+            HomePrimaryPolicy.Connection.SELF -> null
+        }
+    }
+
+    /**
+     * Whether the card has room for the "On your phone" steps beside the status: landscape
+     * resources, and a card at least [SPLIT_MIN_WIDTH_DP] wide (a launcher with favorites beside
+     * the card can leave it narrower than the screen).
+     */
+    private fun splitCard(root: View): Boolean {
+        if (!resources.getBoolean(R.bool.home_card_split)) return false
+        val cardWidthPx = root.findViewById<View>(R.id.home_primary_card)?.width ?: 0
+        val widthDp = if (cardWidthPx > 0) cardWidthPx / resources.displayMetrics.density
+        else resources.configuration.screenWidthDp.toFloat()
+        return widthDp >= SPLIT_MIN_WIDTH_DP
+    }
+
+    private var lastPhonePanel: HomeUiHelper.PhonePanel? = null
+
+    /** The three steps to show on the phone side, with the names the phone will list. */
+    private fun phonePanel(decision: HomePrimaryPolicy.Decision, usbAttached: Boolean): HomeUiHelper.PhonePanel? {
+        val name = (activity as? MainActivity)?.unitBluetoothName() ?: return null
+        val session = decision.status == HomePrimaryPolicy.Status.ACTIVE_SESSION
+        return when (decision.primary) {
+            HomePrimaryPolicy.Connection.WIFI -> {
+                val states = HomePhoneStepsPolicy.wireless(session, decision.stage)
+                val ssid = try {
+                    AapService.instance?.projectionQrSnapshot()?.ssid?.takeIf { it.isNotBlank() }
+                } catch (e: Exception) {
+                    null
+                }
+                HomeUiHelper.PhonePanel(
+                    title = getString(R.string.home_phone_title_wireless),
+                    steps = listOf(
+                        HomeUiHelper.PhoneStep(getString(R.string.home_step_bluetooth_label), name, states[0]),
+                        HomeUiHelper.PhoneStep(
+                            getString(R.string.home_step_wifi_label),
+                            ssid ?: getString(R.string.home_step_wifi_pending),
+                            states[1],
+                            valueIsPlaceholder = ssid == null
+                        ),
+                        HomeUiHelper.PhoneStep(
+                            getString(R.string.home_step_aa_label), getString(R.string.home_step_aa_value), states[2]
+                        ),
+                    ),
+                    hint = if (session) null else getString(R.string.home_step_hint_wireless, name)
+                )
+            }
+            HomePrimaryPolicy.Connection.USB -> {
+                val states = HomePhoneStepsPolicy.usb(session, decision.stage, usbAttached)
+                HomeUiHelper.PhonePanel(
+                    title = getString(R.string.home_phone_title_usb),
+                    steps = listOf(
+                        HomeUiHelper.PhoneStep(
+                            getString(R.string.home_step_usb_cable_label),
+                            getString(R.string.home_step_usb_cable_value), states[0]
+                        ),
+                        HomeUiHelper.PhoneStep(
+                            getString(R.string.home_step_usb_phone_label),
+                            getString(R.string.home_step_usb_phone_value), states[1]
+                        ),
+                        HomeUiHelper.PhoneStep(
+                            getString(R.string.home_step_aa_label), getString(R.string.home_step_aa_value), states[2]
+                        ),
+                    ),
+                    hint = if (session) null else getString(R.string.home_step_hint_usb, name)
+                )
+            }
+            HomePrimaryPolicy.Connection.SELF -> null
+        }
     }
 
     private fun networkText(detail: ConnectionNetworkDetail): String {
@@ -744,11 +844,21 @@ class HomeFragment : Fragment() {
                 // Only when the card asked for it: unlike the others it is not always meant to be there.
                 HomeCardFitPolicy.Line.DETAIL -> root.findViewById<TextView>(R.id.home_primary_detail)
                     ?.takeIf { !it.text.isNullOrEmpty() }
+                HomeCardFitPolicy.Line.UNIT -> root.findViewById<TextView>(R.id.home_primary_unit)
+                    ?.takeIf { !it.text.isNullOrEmpty() }
                 HomeCardFitPolicy.Line.SUBTITLE -> root.findViewById<View>(R.id.home_primary_subtitle)
                 HomeCardFitPolicy.Line.KICKER -> root.findViewById<View>(R.id.home_primary_kicker)
                 HomeCardFitPolicy.Line.TITLE -> root.findViewById<View>(R.id.home_primary_title)
             }
         }
+        val panel = root.findViewById<View>(R.id.home_phone_panel)
+        val panelShown = panel?.visibility == View.VISIBLE
+        if (panel != null && (splitCard(root) && lastPhonePanel != null) != panelShown) {
+            // Decided before the card was laid out; now its real width is known.
+            root.post { if (isAdded && view === root) renderHome() }
+            return
+        }
+        if (panelShown) fitPhonePanel(card, panel!!)
         // A line the previous status hid has to be measured again under this one.
         restoreCardLines(root, stepShown)
         val dropped = optional.takeWhile { cardMinimumHeight(card) > card.height }
@@ -812,6 +922,9 @@ class HomeFragment : Fragment() {
         }
         root.findViewById<TextView>(R.id.home_primary_detail)?.let {
             it.visibility = if (stepShown && !it.text.isNullOrEmpty()) View.VISIBLE else View.GONE
+        }
+        root.findViewById<TextView>(R.id.home_primary_unit)?.let {
+            it.visibility = if (it.text.isNullOrEmpty()) View.GONE else View.VISIBLE
         }
     }
 
@@ -1369,6 +1482,21 @@ class HomeFragment : Fragment() {
      * children as they currently sit was the bug: once the card was squeezed they reported the
      * squeezed heights, the arithmetic believed it, and it kept the squeeze.
      */
+    /** On a short card the panel's hint steps aside before its steps get cut. */
+    private fun fitPhonePanel(card: View, panel: View) {
+        val hint = panel.findViewById<TextView>(R.id.home_phone_hint) ?: return
+        if (hint.text.isNullOrEmpty()) return
+        hint.visibility = View.VISIBLE
+        val width = if (panel.width > 0) panel.width else return
+        panel.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val room = card.height - (panel.layoutParams as? ViewGroup.MarginLayoutParams)
+            .let { (it?.topMargin ?: 0) + (it?.bottomMargin ?: 0) }
+        if (panel.measuredHeight > room) hint.visibility = View.GONE
+    }
+
     private fun cardMinimumHeight(card: View): Int {
         val content = card.findViewById<View>(R.id.home_primary_content) ?: return 0
         val width = if (content.width > 0) content.width else card.width
@@ -3065,6 +3193,8 @@ class HomeFragment : Fragment() {
     }
 
     companion object {
+        /** Narrower than this, the "On your phone" steps do not fit beside the status. */
+        private const val SPLIT_MIN_WIDTH_DP = 560f
         private const val STATE_PENDING_WIDGET_ID = "home_pending_widget_id"
         private const val STATE_PENDING_WIDGET_PAGE = "home_pending_widget_page"
         private const val UNAVAILABLE_FAVORITE_ALPHA = 0.45f

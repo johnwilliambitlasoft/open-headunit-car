@@ -23,7 +23,8 @@ object ConnectionIssueBannerPolicy {
         ConnectionIssue.VIDEO_LINK_TOO_SLOW,
         ConnectionIssue.HANDS_FREE_HELD_ELSEWHERE,
         ConnectionIssue.HANDS_FREE_RECORD_REFUSED,
-        ConnectionIssue.PHONE_HOLDS_STALE_ENDPOINT
+        ConnectionIssue.PHONE_HOLDS_STALE_ENDPOINT,
+        ConnectionIssue.PHONE_IGNORES_WAKE
     )
 
     /** [com.andrerinas.openheadunit.utils.Settings.wifiConnectionMode] for Native AA wireless. */

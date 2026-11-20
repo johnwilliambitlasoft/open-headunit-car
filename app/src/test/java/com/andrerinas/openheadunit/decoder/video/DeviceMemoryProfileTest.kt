@@ -29,10 +29,23 @@ class DeviceMemoryProfileTest {
     }
 
     @Test
-    fun `a mid-range unit is normal, which is today's behaviour`() {
+    fun `a 2GB head unit is constrained, as reported or as sold`() {
+        // 1880MB is what a 2GB unit typically reports as totalMem; 2048 covers one that reports it all.
+        for (totalRamMb in listOf(1880L, 2048L)) {
+            assertEquals(
+                "totalRam=$totalRamMb",
+                DeviceMemoryProfile.CONSTRAINED,
+                DeviceMemoryProfile.classify(totalRamMb = totalRamMb, heapLimitMb = 192, systemLowRamFlag = false)
+            )
+        }
+    }
+
+    @Test
+    fun `a 3GB unit is normal, which is today's behaviour`() {
+        // 3GB units report about 2.8GB.
         assertEquals(
             DeviceMemoryProfile.NORMAL,
-            DeviceMemoryProfile.classify(totalRamMb = 2048, heapLimitMb = 192, systemLowRamFlag = false)
+            DeviceMemoryProfile.classify(totalRamMb = 2850, heapLimitMb = 192, systemLowRamFlag = false)
         )
     }
 
@@ -64,7 +77,7 @@ class DeviceMemoryProfileTest {
         assertEquals(
             "a large heap on a small device is not ample",
             DeviceMemoryProfile.NORMAL,
-            DeviceMemoryProfile.classify(totalRamMb = 2048, heapLimitMb = 512, systemLowRamFlag = false)
+            DeviceMemoryProfile.classify(totalRamMb = 2850, heapLimitMb = 512, systemLowRamFlag = false)
         )
     }
 

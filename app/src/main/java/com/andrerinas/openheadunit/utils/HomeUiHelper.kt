@@ -40,6 +40,7 @@ import com.andrerinas.openheadunit.R
 import com.andrerinas.openheadunit.connection.ConnectionStage
 import com.andrerinas.openheadunit.main.BarFitPolicy
 import com.andrerinas.openheadunit.main.HomeColorPolicy
+import com.andrerinas.openheadunit.main.HomePhoneStepsPolicy
 import com.andrerinas.openheadunit.main.HomePrimaryPolicy.Connection
 import com.andrerinas.openheadunit.main.HomePrimaryPolicy.Decision
 import com.andrerinas.openheadunit.main.HomePrimaryPolicy.Status
@@ -540,7 +541,9 @@ object HomeUiHelper {
         secondsLeft: Int,
         palette: Palette,
         /** The WiFi Direct group, shown under the step while a connection comes up. */
-        networkLine: String? = null
+        networkLine: String? = null,
+        /** This unit's name as the phone lists it; hidden when null. */
+        unitLine: String? = null
     ) {
         val card = rootView.findViewById<View>(R.id.home_primary_card) ?: return
         (card as? FrameLayout)?.let {
@@ -572,6 +575,9 @@ object HomeUiHelper {
         val detail = rootView.findViewById<TextView>(R.id.home_primary_detail)
         detail?.text = networkLine
         detail?.visibility = if (stage != null && !networkLine.isNullOrEmpty()) View.VISIBLE else View.GONE
+        val unit = rootView.findViewById<TextView>(R.id.home_primary_unit)
+        unit?.text = unitLine
+        unit?.visibility = if (unitLine.isNullOrEmpty()) View.GONE else View.VISIBLE
         val progress = rootView.findViewById<View>(R.id.home_primary_progress)
         progress?.visibility = if (connecting && stage != null) View.VISIBLE else View.GONE
         if (connecting && stage != null) {
@@ -590,34 +596,19 @@ object HomeUiHelper {
         val cancelRadius = resources.getDimension(R.dimen.home_secondary_cta_height) / 2f
         val iconTile = rootView.findViewById<View>(R.id.home_primary_icon_tile)
 
-        if (!palette.isDark) {
-            // Day: the whole card wears the connection's color, as see-through as the panels.
-            val shade = ColorUtils.darkenColor(color, 0.78f)
-            card.background = rounded(palette.fill(color), panelRadius)
-            iconTile?.background = rounded(palette.fill(shade), tileRadius)
-            icon?.clearColorFilter()
-            listOf(kicker, title, subtitle, detail).forEach { it?.setTextColor(Color.WHITE) }
-            action?.apply {
-                background = pressable(Color.WHITE, ctaRadius, palette)
-                setTextColor(ColorUtils.darkenColor(color, 0.66f))
-            }
-            cancel?.apply {
-                background = pressable(shade, cancelRadius, palette)
-                setTextColor(Color.WHITE)
-            }
-            return
-        }
-
-        // Night: a neutral card, so the screen does not glow. The color stays on the kicker, the
-        // icon and the button, which is what the driver looks for.
+        // A neutral card in every mode, day included: a whole card in the connection's color was
+        // loud and made the text hard to scan. The color stays on the kicker, the icon, the edge,
+        // the progress and the button, which is what the driver looks for.
         val strokePx = dp(context, 1)
-        card.background = shape(palette.panel, panelRadius, palette.panelStroke, strokePx)
+        card.background = shape(palette.panel, panelRadius, withAlpha(color, 0x73), strokePx)
         iconTile?.background = rounded(withAlpha(color, ACCENT_WASH_ALPHA), tileRadius)
-        icon?.setColorFilter(color, PorterDuff.Mode.SRC_IN)
-        kicker?.setTextColor(color)
+        val accent = accentOnDark(color, palette)
+        icon?.setColorFilter(accent, PorterDuff.Mode.SRC_IN)
+        kicker?.setTextColor(accent)
         title?.setTextColor(palette.text)
         subtitle?.setTextColor(palette.textMuted)
         detail?.setTextColor(palette.textMuted)
+        unit?.setTextColor(palette.textMuted)
         action?.apply {
             if (palette.mode == Mode.EXTREME_DARK) {
                 // An outline lights far fewer pixels than a filled button.
@@ -641,6 +632,106 @@ object HomeUiHelper {
                 { shape(palette.tilePressed, cancelRadius, palette.tileStroke, strokePx) }
             )
             setTextColor(palette.text)
+        }
+    }
+
+    /** One "On your phone" step: what it is, the name or action to look for, and how far it got. */
+    data class PhoneStep(
+        val label: String,
+        val value: String,
+        val state: HomePhoneStepsPolicy.State,
+        /** A placeholder rather than a real name, shown quieter. */
+        val valueIsPlaceholder: Boolean = false,
+    )
+
+    data class PhonePanel(val title: String, val steps: List<PhoneStep>, val hint: String?)
+
+    /**
+     * The connection's color made light enough to read as text or a thin line on the dark card:
+     * the WiFi violet itself is too dark for that. Extreme dark keeps it as it is, dim on purpose.
+     */
+    @ColorInt
+    private fun accentOnDark(@ColorInt color: Int, palette: Palette): Int =
+        if (palette.mode == Mode.EXTREME_DARK) color
+        else androidx.core.graphics.ColorUtils.blendARGB(color, Color.WHITE, 0.42f)
+
+    private val phoneStepIds = listOf(
+        listOf(R.id.home_phone_step1_badge, R.id.home_phone_step1_label, R.id.home_phone_step1_value),
+        listOf(R.id.home_phone_step2_badge, R.id.home_phone_step2_label, R.id.home_phone_step2_value),
+        listOf(R.id.home_phone_step3_badge, R.id.home_phone_step3_label, R.id.home_phone_step3_value),
+    )
+
+    /**
+     * The landscape card's right half: what to do on the phone, with the names it will show, and
+     * which step the connection is on. Hidden when [show] is false or there is nothing to tell.
+     */
+    fun applyPhonePanel(
+        context: Context,
+        rootView: View,
+        panel: PhonePanel?,
+        show: Boolean,
+        @ColorInt color: Int,
+        palette: Palette,
+    ) {
+        val view = rootView.findViewById<View>(R.id.home_phone_panel) ?: return
+        if (!show || panel == null) {
+            view.visibility = View.GONE
+            return
+        }
+        view.visibility = View.VISIBLE
+        val radius = context.resources.getDimension(R.dimen.home_tile_radius)
+        val strokePx = dp(context, 1)
+        view.background = shape(palette.tile, radius, palette.tileStroke, strokePx)
+        val accent = accentOnDark(color, palette)
+        // The home's "muted" text is plain white, so the panel quietens its own secondary lines.
+        val secondary = withAlpha(palette.textMuted, 0xB3)
+        val quietText = withAlpha(palette.textMuted, 0x8C)
+        rootView.findViewById<TextView>(R.id.home_phone_title)?.apply {
+            text = panel.title
+            setTextColor(accent)
+        }
+        phoneStepIds.forEachIndexed { index, (badgeId, labelId, valueId) ->
+            val step = panel.steps.getOrNull(index)
+            val row = (rootView.findViewById<View>(badgeId)?.parent as? View)
+            row?.visibility = if (step == null) View.GONE else View.VISIBLE
+            if (step == null) return@forEachIndexed
+            val badge = rootView.findViewById<TextView>(badgeId)
+            val badgeSize = context.resources.getDimension(R.dimen.home_phone_badge)
+            when (step.state) {
+                HomePhoneStepsPolicy.State.DONE -> badge?.apply {
+                    text = "\u2713"
+                    contentDescription = context.getString(R.string.home_step_done)
+                    background = rounded(color, badgeSize / 2f)
+                    setTextColor(readableOn(color))
+                }
+                HomePhoneStepsPolicy.State.CURRENT -> badge?.apply {
+                    text = (index + 1).toString()
+                    contentDescription = null
+                    background = shape(withAlpha(color, 0x59), badgeSize / 2f, accent, dp(context, 2))
+                    setTextColor(Color.WHITE)
+                }
+                HomePhoneStepsPolicy.State.TODO -> badge?.apply {
+                    text = (index + 1).toString()
+                    contentDescription = null
+                    background = shape(Color.TRANSPARENT, badgeSize / 2f, withAlpha(palette.textMuted, 0x66), dp(context, 2))
+                    setTextColor(quietText)
+                }
+            }
+            rootView.findViewById<TextView>(labelId)?.apply {
+                text = step.label
+                setTextColor(secondary)
+            }
+            rootView.findViewById<TextView>(valueId)?.apply {
+                text = step.value
+                val quiet = step.valueIsPlaceholder || step.state == HomePhoneStepsPolicy.State.TODO
+                setTextColor(if (quiet) quietText else palette.text)
+                setTypeface(null, if (quiet) android.graphics.Typeface.NORMAL else android.graphics.Typeface.BOLD)
+            }
+        }
+        rootView.findViewById<TextView>(R.id.home_phone_hint)?.apply {
+            text = panel.hint
+            visibility = if (panel.hint.isNullOrEmpty()) View.GONE else View.VISIBLE
+            setTextColor(secondary)
         }
     }
 

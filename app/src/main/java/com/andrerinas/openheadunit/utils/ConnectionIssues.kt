@@ -141,7 +141,15 @@ enum class ConnectionIssue {
      * The phone stayed in accessory mode and answered no handshake after both recovery steps.
      * Only a replug recovers it now.
      */
-    STALE_USB_ACCESSORY
+    STALE_USB_ACCESSORY,
+
+    /**
+     * The phone answered this unit's Bluetooth wake again and again but never connected back, on
+     * Bluetooth or on WiFi. The usual cause is a phone that remembers an older setup of this unit
+     * (a reinstall or another app gave it a new WiFi Direct network) or that is bound to another
+     * car stereo. Unpairing and pairing again on the phone resets it.
+     */
+    PHONE_IGNORES_WAKE
 }
 
 /** An issue that is currently true, and when it was last raised. */
@@ -263,6 +271,7 @@ object ConnectionIssues {
                 ConnectionIssue.PHONE_HOLDS_STALE_ENDPOINT -> settings.connectionIssueStaleEndpointAtEpochMs
                 ConnectionIssue.HOME_WIFI_REJOINED_BESIDE_GROUP -> settings.connectionIssueHomeWifiRejoinedAtEpochMs
                 ConnectionIssue.STALE_USB_ACCESSORY -> settings.connectionIssueStaleUsbAccessoryAtEpochMs
+                ConnectionIssue.PHONE_IGNORES_WAKE -> settings.connectionIssuePhoneIgnoresWakeAtEpochMs
             }
         } catch (e: Exception) {
             0L
@@ -287,6 +296,7 @@ object ConnectionIssues {
                     ConnectionIssue.PHONE_HOLDS_STALE_ENDPOINT -> settings.connectionIssueStaleEndpointAtEpochMs = atEpochMs
                     ConnectionIssue.HOME_WIFI_REJOINED_BESIDE_GROUP -> settings.connectionIssueHomeWifiRejoinedAtEpochMs = atEpochMs
                     ConnectionIssue.STALE_USB_ACCESSORY -> settings.connectionIssueStaleUsbAccessoryAtEpochMs = atEpochMs
+                    ConnectionIssue.PHONE_IGNORES_WAKE -> settings.connectionIssuePhoneIgnoresWakeAtEpochMs = atEpochMs
                 }
             } catch (e: Exception) {
                 AppLog.d("ConnectionIssues: could not record $issue: ${e.message}")

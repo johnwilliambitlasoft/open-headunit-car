@@ -79,4 +79,9 @@
     <dimen name="home_hint_button_height_small">48dp</dimen>
     <dimen name="home_hint_art">88dp</dimen>
     <dimen name="home_hint_art_small">64dp</dimen>
+    <!-- The "On your phone" steps beside the main button on landscape screens. -->
+    <dimen name="home_phone_panel_padding">16dp</dimen>
+    <dimen name="home_phone_badge">28dp</dimen>
+    <dimen name="home_phone_badge_gap">12dp</dimen>
+    <dimen name="home_phone_step_gap">12dp</dimen>
 </resources>

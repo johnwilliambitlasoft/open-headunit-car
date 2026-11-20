@@ -140,6 +140,11 @@ class Settings(private val context: Context) {
         get() = prefs.getBoolean(KEY_ENABLE_CAR_LAUNCHER, false)
         set(value) { prefs.edit().putBoolean(KEY_ENABLE_CAR_LAUNCHER, value).apply() }
 
+    /** The user answered "Don't ask again" to the start-up offer to become the home app. */
+    var homePromptDeclined: Boolean
+        get() = prefs.getBoolean(KEY_HOME_PROMPT_DECLINED, false)
+        set(value) { prefs.edit().putBoolean(KEY_HOME_PROMPT_DECLINED, value).apply() }
+
     val isCarLauncherActive: Boolean
         get() = enableCarLauncher || CarLauncherManager.isDefaultLauncher(context)
 
@@ -2032,6 +2037,7 @@ class Settings(private val context: Context) {
         const val KEY_ASSISTANT_VOLUME_OFFSET = "assistant-volume-offset"
         const val KEY_NAVIGATION_VOLUME_OFFSET = "navigation-volume-offset"
         const val KEY_ENABLE_CAR_LAUNCHER = "enable-car-launcher"
+        const val KEY_HOME_PROMPT_DECLINED = "home-prompt-declined"
         const val KEY_WIFI_DIRECT_BANDED_REFUSED_ON = "wifi-direct-banded-refused-on"
 
         const val AUTO_CONNECT_LAST_SESSION = "last-session"
@@ -2731,6 +2737,10 @@ class Settings(private val context: Context) {
     var connectionIssueStaleUsbAccessoryAtEpochMs: Long
         get() = prefs.getLong("connection-issue-stale-usb-accessory", 0L)
         set(value) = prefs.edit().putLong("connection-issue-stale-usb-accessory", value).apply()
+
+    var connectionIssuePhoneIgnoresWakeAtEpochMs: Long
+        get() = prefs.getLong("connection-issue-phone-ignores-wake", 0L)
+        set(value) = prefs.edit().putLong("connection-issue-phone-ignores-wake", value).apply()
 
     /**
      * When the user last dismissed the failure banner.

@@ -47,4 +47,8 @@
     <dimen name="home_widget_padding">10dp</dimen>
     <dimen name="home_widget_strip_min">72dp</dimen>
     <dimen name="home_widget_strip_max">220dp</dimen>
+    <dimen name="home_phone_panel_padding">28dp</dimen>
+    <dimen name="home_phone_badge">44dp</dimen>
+    <dimen name="home_phone_badge_gap">18dp</dimen>
+    <dimen name="home_phone_step_gap">20dp</dimen>
 </resources>

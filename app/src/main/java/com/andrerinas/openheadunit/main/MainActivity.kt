@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
 import android.widget.ImageView
@@ -49,6 +50,8 @@ import com.andrerinas.openheadunit.utils.AppLog
 import com.andrerinas.openheadunit.utils.ScreenPower
 import com.andrerinas.openheadunit.utils.AppPermissions
 import com.andrerinas.openheadunit.utils.CarLauncherManager
+import androidx.activity.result.contract.ActivityResultContracts
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.andrerinas.openheadunit.utils.OnboardingLauncherPolicy
 import com.andrerinas.openheadunit.utils.ConnectionIssue
 import com.andrerinas.openheadunit.utils.ConnectionIssues
@@ -56,6 +59,10 @@ import android.content.res.Configuration
 import com.andrerinas.openheadunit.utils.Settings
 import android.os.SystemClock
 import com.andrerinas.openheadunit.connection.wifi.WifiLauncherMode
+import com.andrerinas.openheadunit.connection.wifi.modes.nativeaa.NativeStrategy
+import com.andrerinas.openheadunit.connection.wifi.modes.nativeaa.SoftApState
+import com.andrerinas.openheadunit.utils.BluetoothHelper
+import com.andrerinas.openheadunit.utils.SoftApStateReader
 import com.andrerinas.openheadunit.utils.SystemUI
 import com.andrerinas.openheadunit.utils.ToastUtils
 import com.bumptech.glide.request.target.CustomTarget
@@ -148,6 +155,12 @@ class MainActivity : BaseActivity() {
             super.attachBaseContext(newBase)
         }
     }
+
+    // The home-role request has to be started for a result (see CarLauncherManager), so it is
+    // registered here, before the activity is started.
+    private val homeRoleLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { CarLauncherManager.onRoleRequestResult(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         requestedOrientation = Settings(this).screenOrientation.androidOrientation
@@ -619,7 +632,12 @@ class MainActivity : BaseActivity() {
         }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                ConnectionStageTracker.network.collect { renderNetworkLine(it) }
+                ConnectionStageTracker.network.collect {
+                    renderNetworkLine(it)
+                    // A network that came up retires the failure records about it; without this the
+                    // banner kept saying the group could not be created until the next resume.
+                    if (it != null) updateConnectionIssueBanner()
+                }
             }
         }
         // The session coming up does not move the tracker, so the pill has to be asked again then.
@@ -1273,6 +1291,7 @@ class MainActivity : BaseActivity() {
 
         if (permissionsToRequest.isNotEmpty()) {
             hasRequestedPermissionsThisSession = true
+            permissionRequestInFlight = true
             AppLog.i("Requesting missing permissions: $permissionsToRequest")
             ActivityCompat.requestPermissions(
                 this,
@@ -1290,8 +1309,27 @@ class MainActivity : BaseActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == READINESS_PERMISSION_REQUEST) {
+            val stillMissing = missingWirelessPermissions()
+            // Denied with "don't ask again": Android no longer shows the dialog, so the only place
+            // left to grant it is the app's own page in the system settings.
+            if (stillMissing.isNotEmpty() &&
+                stillMissing.none { ActivityCompat.shouldShowRequestPermissionRationale(this, it) }
+            ) {
+                AppLog.i("MainActivity: wireless permissions refused for good, opening the app's settings page")
+                openSystemSettings(
+                    Intent(
+                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.fromParts("package", packageName, null)
+                    )
+                )
+            }
+            updateConnectionIssueBanner()
+            return
+        }
         if (requestCode == permissionRequestCode) {
             hasRequestedPermissionsThisSession = true
+            permissionRequestInFlight = false
             AppLog.i("MainActivity: Permissions request completed.")
         }
     }
@@ -1336,6 +1374,7 @@ class MainActivity : BaseActivity() {
         ensureAutoConnectWatchdog(rearmed = true)
 
         // Coming back from a failed attempt lands here, so this is where the reason gets said.
+        registerReadinessReceiver()
         updateConnectionIssueBanner()
 
         checkOverlayPermission()
@@ -1372,6 +1411,27 @@ class MainActivity : BaseActivity() {
         val banner = findViewById<View>(R.id.connection_issue_banner) ?: return
         val text = findViewById<android.widget.TextView>(R.id.connection_issue_text)
         val dismiss = findViewById<View>(R.id.connection_issue_dismiss)
+
+        // What is switched off right now comes before what failed last time: it is the reason the
+        // next attempt fails, and the user can fix it from here.
+        val problem = readinessProblem()
+        if (problem != null && problem != dismissedReadiness) {
+            text?.text = readinessText(problem)
+            banner.setOnClickListener { fixReadiness(problem) }
+            dismiss?.setOnClickListener {
+                // Until this activity goes away: a switch the user chose to leave off is theirs.
+                dismissedReadiness = problem
+                banner.visibility = View.GONE
+            }
+            banner.visibility = View.VISIBLE
+            keepBannerClearOfRail(banner)
+            if (loggedReadiness != problem) {
+                loggedReadiness = problem
+                AppLog.i("MainActivity: showing the readiness banner for $problem")
+            }
+            return
+        }
+        loggedReadiness = null
 
         val settings = Settings(this)
         val issue = try {
@@ -1434,8 +1494,14 @@ class MainActivity : BaseActivity() {
                     R.string.connection_issue_banner_home_wifi_rejoined
                 ConnectionIssue.STALE_USB_ACCESSORY ->
                     R.string.connection_issue_banner_stale_usb_accessory
+                ConnectionIssue.PHONE_IGNORES_WAKE ->
+                    R.string.connection_issue_banner_phone_ignores_wake
             }
         )
+        // Named, because the phone lists this unit by its Bluetooth name and that is what to unpair.
+        if (issue == ConnectionIssue.PHONE_IGNORES_WAKE) {
+            text?.text = getString(R.string.connection_issue_banner_phone_ignores_wake, unitBluetoothName())
+        }
         banner.setOnClickListener { openRemedyFor(issue) }
         dismiss?.setOnClickListener {
             // Per occurrence, not permanent: the stamp is compared against the next raise, so the
@@ -1444,6 +1510,7 @@ class MainActivity : BaseActivity() {
             banner.visibility = View.GONE
         }
         banner.visibility = View.VISIBLE
+        keepBannerClearOfRail(banner)
         // Once per condition rather than once per resume: this screen is resumed constantly and a
         // line repeated fifty times in a reporter's log buries the one that explains the failure.
         if (loggedBannerIssue != issue) {
@@ -1480,6 +1547,182 @@ class MainActivity : BaseActivity() {
         }
     }
 
+    private var dismissedReadiness: ConnectionReadinessPolicy.Problem? = null
+    private var loggedReadiness: ConnectionReadinessPolicy.Problem? = null
+    private var readinessReceiverRegistered = false
+
+    /** Re-reads the banner whenever one of the switches it reports on changes. */
+    private val readinessReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            updateConnectionIssueBanner()
+        }
+    }
+
+    private fun registerReadinessReceiver() {
+        if (readinessReceiverRegistered) return
+        val filter = android.content.IntentFilter().apply {
+            addAction(android.bluetooth.BluetoothAdapter.ACTION_STATE_CHANGED)
+            addAction(android.bluetooth.BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+            addAction(android.net.wifi.WifiManager.WIFI_STATE_CHANGED_ACTION)
+            addAction("android.net.wifi.WIFI_AP_STATE_CHANGED")
+            addAction(android.location.LocationManager.PROVIDERS_CHANGED_ACTION)
+            addAction(android.location.LocationManager.MODE_CHANGED_ACTION)
+        }
+        try {
+            ContextCompat.registerReceiver(this, readinessReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+            readinessReceiverRegistered = true
+        } catch (e: Exception) {
+            AppLog.w("MainActivity: could not listen for Bluetooth/WiFi/location changes: ${e.message}")
+        }
+    }
+
+    private fun unregisterReadinessReceiver() {
+        if (!readinessReceiverRegistered) return
+        readinessReceiverRegistered = false
+        try {
+            unregisterReceiver(readinessReceiver)
+        } catch (e: Exception) {
+            AppLog.d("MainActivity: readiness receiver already gone: ${e.message}")
+        }
+    }
+
+    /** This unit's Bluetooth name, as the phone lists it, or a plain description when unreadable. */
+    fun unitBluetoothName(): String =
+        try {
+            BluetoothHelper.getBluetoothAdapter(this)?.name?.takeIf { it.isNotBlank() }
+        } catch (e: SecurityException) {
+            null
+        } ?: getString(R.string.this_unit_fallback_name)
+
+    /** The location and nearby-devices permissions wireless needs that are not granted. */
+    private fun missingWirelessPermissions(): List<String> =
+        AppPermissions.visible()
+            .filter { it.id == "location" || it.id == "nearby" }
+            .flatMap { it.requestablePermissions() }
+            .distinct()
+            .filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+
+    /** The live state behind [ConnectionReadinessPolicy]; null when nothing is wrong or unreadable. */
+    private fun readinessProblem(): ConnectionReadinessPolicy.Problem? = try {
+        val settings = Settings(this)
+        val nativeWireless = settings.showsWifi() && settings.wifiConnectionMode == WifiLauncherMode.NATIVE
+        if (!nativeWireless) {
+            null
+        } else {
+            val permissionsMissing = AppPermissions.visible()
+                .filter { it.id == "location" || it.id == "nearby" }
+                .any { !it.isGranted(this) }
+            val bluetoothOn = try {
+                BluetoothHelper.getBluetoothAdapter(this)?.isEnabled
+            } catch (e: SecurityException) {
+                null
+            }
+            // Counted only when it can be read, so a refused read is never "no phone paired".
+            val paired = if (bluetoothOn == true && !permissionsMissing) {
+                BluetoothHelper.pairedDevicesOrEmpty(this).size
+            } else null
+            val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            val location = getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+            ConnectionReadinessPolicy.firstProblem(
+                ConnectionReadinessPolicy.Input(
+                    nativeWireless = true,
+                    hotspotTransport = settings.nativeApStrategy == NativeStrategy.HOTSPOT,
+                    sessionConnected = App.provide(this).commManager.isConnected,
+                    onboardingComplete =
+                        settings.onboardingVersion >= OnboardingActivity.CURRENT_ONBOARDING_VERSION,
+                    wirelessPermissionsMissing = permissionsMissing,
+                    bluetoothOn = bluetoothOn,
+                    pairedPhones = paired,
+                    wifiOn = wifi?.isWifiEnabled,
+                    locationOn = location?.let { androidx.core.location.LocationManagerCompat.isLocationEnabled(it) },
+                    locationGatesWifiDirect = Build.VERSION.SDK_INT in Build.VERSION_CODES.Q..Build.VERSION_CODES.S_V2,
+                    hotspotOn = when (SoftApStateReader.read(this)) {
+                        SoftApState.ENABLED -> true
+                        SoftApState.NOT_ENABLED -> false
+                        else -> null
+                    },
+                    hotspotStartsItself = settings.autoEnableHotspot && AppPermissions.isWriteSettingsGranted(this),
+                )
+            )
+        }
+    } catch (e: Exception) {
+        AppLog.w("MainActivity: could not read the unit's connection readiness: ${e.message}")
+        null
+    }
+
+    private fun readinessText(problem: ConnectionReadinessPolicy.Problem): String = when (problem) {
+        ConnectionReadinessPolicy.Problem.PERMISSIONS_MISSING -> getString(
+            // Nearby devices only exists from Android 12; naming it earlier sends the user hunting.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) R.string.readiness_permissions_missing
+            else R.string.readiness_permissions_missing_location
+        )
+        ConnectionReadinessPolicy.Problem.BLUETOOTH_OFF -> getString(R.string.readiness_bluetooth_off)
+        ConnectionReadinessPolicy.Problem.NO_PAIRED_PHONE ->
+            getString(R.string.readiness_no_paired_phone, unitBluetoothName())
+        ConnectionReadinessPolicy.Problem.WIFI_OFF -> getString(R.string.readiness_wifi_off)
+        ConnectionReadinessPolicy.Problem.LOCATION_OFF -> getString(R.string.readiness_location_off)
+        ConnectionReadinessPolicy.Problem.HOTSPOT_ON -> getString(R.string.readiness_hotspot_on)
+        ConnectionReadinessPolicy.Problem.HOTSPOT_OFF -> getString(R.string.readiness_hotspot_off)
+    }
+
+    private fun fixReadiness(problem: ConnectionReadinessPolicy.Problem) {
+        AppLog.i("MainActivity: readiness banner tapped for $problem")
+        when (problem) {
+            ConnectionReadinessPolicy.Problem.PERMISSIONS_MISSING -> {
+                // Not requestPermissions(): that one asks once per session, and the banner is
+                // exactly the "ask again" the user is tapping for.
+                val missing = missingWirelessPermissions()
+                if (missing.isNotEmpty()) {
+                    ActivityCompat.requestPermissions(this, missing.toTypedArray(), READINESS_PERMISSION_REQUEST)
+                }
+            }
+            ConnectionReadinessPolicy.Problem.BLUETOOTH_OFF ->
+                openSystemSettings(
+                    Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE),
+                    Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
+                )
+            ConnectionReadinessPolicy.Problem.NO_PAIRED_PHONE ->
+                openSystemSettings(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
+            ConnectionReadinessPolicy.Problem.WIFI_OFF -> openWifiPanel()
+            ConnectionReadinessPolicy.Problem.LOCATION_OFF ->
+                openSystemSettings(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            ConnectionReadinessPolicy.Problem.HOTSPOT_ON, ConnectionReadinessPolicy.Problem.HOTSPOT_OFF ->
+                openSystemSettings(
+                    // Not public API, but present on AOSP-based units; the wireless page is the fallback.
+                    Intent().setClassName("com.android.settings", "com.android.settings.TetherSettings"),
+                    Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)
+                )
+        }
+    }
+
+    /**
+     * In landscape the home's buttons are a rail down the driver's side, and a full-width banner
+     * covered its top button. Inset by the rail on both sides, since right-hand drive moves it.
+     */
+    private fun keepBannerClearOfRail(banner: View) {
+        val params = banner.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+        val base = (16 * resources.displayMetrics.density).toInt()
+        val rail = findViewById<View>(R.id.home_driver_bar)
+        val railWidth = rail?.takeIf { it.isShown && it.width > 0 && it.height > it.width }?.width ?: 0
+        val inset = if (railWidth > 0) railWidth + base else base
+        if (params.marginStart == inset && params.marginEnd == inset) return
+        params.marginStart = inset
+        params.marginEnd = inset
+        banner.layoutParams = params
+    }
+
+    /** Starts the first of [intents] the system accepts. */
+    private fun openSystemSettings(vararg intents: Intent) {
+        for (intent in intents) {
+            try {
+                startActivity(intent)
+                return
+            } catch (e: Exception) {
+                AppLog.w("MainActivity: could not open ${intent.action ?: intent.component}: ${e.message}")
+            }
+        }
+    }
+
     /**
      * Open Settings on the row that fixes [issue].
      *
@@ -1506,6 +1749,11 @@ class MainActivity : BaseActivity() {
             ConnectionIssue.HANDS_FREE_RECORD_REFUSED -> return
             // The remedy is on the phone, and this unit is already applying the one it has.
             ConnectionIssue.PHONE_HOLDS_STALE_ENDPOINT -> return
+            // The fix is on the phone; this unit's Bluetooth list is where the other half is.
+            ConnectionIssue.PHONE_IGNORES_WAKE -> {
+                openSystemSettings(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
+                return
+            }
             // The remedy is a WiFi restart: done here when root or local ADB allows, else the panel.
             ConnectionIssue.WIFI_DIRECT_STACK_STUCK -> {
                 restartWifiFromBanner()
@@ -1564,6 +1812,7 @@ class MainActivity : BaseActivity() {
 
     override fun onPause() {
         super.onPause()
+        unregisterReadinessReceiver()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) setTurnScreenOn(false)
         if (isOrientationReceiverRegistered) {
             unregisterReceiver(orientationReceiver)
@@ -1586,8 +1835,40 @@ class MainActivity : BaseActivity() {
         } else if (!wizardPending) {
             // Onboarding already completed (e.g. upgraders): request runtime permissions directly.
             requestPermissions()
+            // One system dialog at a time: the permission result resumes this screen, which asks then.
+            if (!permissionRequestInFlight) maybeAskDefaultHome()
         }
         // Wizard deferred this session ("Do it later"): wait until it runs on the next launch.
+    }
+
+    /**
+     * Offers to make Open Headunit the unit's home app, so the unit starts straight into it.
+     *
+     * Asked once per app start until it is the home app or the user picks "Don't ask again", and
+     * never over a running Android Auto session. Launcher mode itself is only stored once the system
+     * grants the role (CarLauncherManager.onRoleRequestResult); a declined request leaves the alias to
+     * be switched off again by the startup sync.
+     */
+    private fun maybeAskDefaultHome() {
+        if (homePromptShownThisSession || isFinishing || isDestroyed) return
+        val appSettings = Settings(this)
+        if (appSettings.homePromptDeclined || CarLauncherManager.isDefaultLauncher(this)) return
+        if (App.provide(this).commManager.isConnected) return
+        homePromptShownThisSession = true
+        AppLog.i("MainActivity: asking whether to make Open Headunit the home app")
+        MaterialAlertDialogBuilder(this, R.style.DarkAlertDialog)
+            .setTitle(R.string.home_prompt_title)
+            .setMessage(getString(R.string.onb_launcher_help) + "\n\n" + getString(R.string.onb_launcher_warning))
+            .setPositiveButton(R.string.home_prompt_make_default) { _, _ ->
+                CarLauncherManager.setLauncherEnabled(this, true)
+                CarLauncherManager.promptSetDefaultLauncher(this, homeRoleLauncher)
+            }
+            .setNegativeButton(R.string.home_prompt_not_now, null)
+            .setNeutralButton(R.string.home_prompt_never) { _, _ ->
+                appSettings.homePromptDeclined = true
+                AppLog.i("MainActivity: home app prompt turned off by the user")
+            }
+            .show()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -1642,7 +1923,13 @@ class MainActivity : BaseActivity() {
 
     companion object {
         private const val permissionRequestCode = 97
+        /** The connection banner's own permission request, answered apart from the start-up one. */
+        private const val READINESS_PERMISSION_REQUEST = 98
         @Volatile var hasRequestedPermissionsThisSession: Boolean = false
+        @Volatile private var homePromptShownThisSession: Boolean = false
+        // Process-wide like the flag above: finishing the wizard can recreate this screen (orientation)
+        // while the permission dialog the old instance opened is still up.
+        @Volatile private var permissionRequestInFlight: Boolean = false
         const val EXTRA_LAUNCH_SOURCE = "launch_source"
         const val EXTRA_TURN_SCREEN_ON = "turn_screen_on"
         const val LAUNCH_SOURCE_BLUETOOTH = "Bluetooth auto-start"
